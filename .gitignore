@@ -1,0 +1,13 @@
+# Caché de Python y entornos virtuales
+__pycache__/
+*.pyc
+env/
+venv/
+
+# Bases de datos y logs de Alice
+memoria_local_db/
+asistente_errores.log
+memoria_pendiente.json
+
+# Espacio de trabajo (evita subir los archivos que Alice crea en tu PC)
+workspace_ia/
