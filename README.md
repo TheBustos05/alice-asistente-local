@@ -49,7 +49,7 @@ cd alice-asistente-local
 
 ### 2. Instalar dependencias principales
 ~~~bash
-pip install PyQt6 openai mem0ai chromadb sentence-transformers
+pip install PyQt6 openai mem0ai chromadb sentence-transformers psutil pyqtgraph
 ~~~
 
 ### 3. Configurar el Motor de Inferencia

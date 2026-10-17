@@ -31,6 +31,7 @@ class CerebroIA:
         self.USER_ID = "alvaro_calderon"
         self.HISTORIAL = []
         self.MAX_TURNOS = 8
+        self.ultimo_modelo_usado = None
         self.gestor_memoria = GestorMemoria()
         atexit.register(self.apagar_motor)
 
@@ -177,6 +178,8 @@ class CerebroIA:
         else:
             self.log("💬 Conversación estándar. Usando modelo rápido (Stheno)...", "#a6e3a1")
 
+        # Exponer el modelo real elegido por el router para la interfaz.
+        self.ultimo_modelo_usado = modelo_seleccionado
         if not self._asegurar_modelo(modelo_seleccionado):
             return f"Error crítico: No se pudo despertar al modelo {modelo_seleccionado}."
 
