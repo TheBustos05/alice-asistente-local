@@ -23,12 +23,30 @@ class WorkerMensaje(QThread):
         respuesta = self.cerebro.procesar_mensaje(self.texto, self.ruta_imagen)
         self.respuesta_lista.emit(respuesta)
 
+class WorkerCierre(QThread):
+    def __init__(self, cerebro, trabajadores_activos):
+        super().__init__()
+        self.cerebro = cerebro
+        self.trabajadores_activos = trabajadores_activos
+        self.descarga_exitosa = False
+
+    def run(self):
+        # Primero interrumpe inferencias; luego espera a los trabajadores y
+        # descarga otra vez para cubrir cargas que terminaron durante el cierre.
+        self.cerebro.apagar_motor()
+        for trabajador in self.trabajadores_activos:
+            while trabajador.isRunning():
+                trabajador.wait(250)
+        self.descarga_exitosa = self.cerebro.apagar_motor()
+
 class InterfazBase(QWidget):
     senial_log = pyqtSignal(str, str)
 
     def __init__(self):
         super().__init__()
         self.ruta_imagen = None
+        self._cierre_completado = False
+        self._worker_cierre = None
         self.configurar_ui()
         
         self.senial_log.connect(self.imprimir_estado_seguro)
@@ -132,6 +150,32 @@ class InterfazBase(QWidget):
         self.worker_mensaje.respuesta_lista.connect(self.al_terminar_mensaje)
         self.worker_mensaje.start()
 
+    def closeEvent(self, event):
+        if self._cierre_completado:
+            event.accept()
+            return
+
+        event.ignore()
+        if self._worker_cierre is not None and self._worker_cierre.isRunning():
+            return
+
+        self.setEnabled(False)
+        self.label_estado.setText("Cerrando Alice y descargando modelos de LM Studio…")
+        trabajadores = [
+            trabajador for trabajador in (
+                getattr(self, "worker_init", None),
+                getattr(self, "worker_mensaje", None),
+            )
+            if trabajador is not None and trabajador.isRunning()
+        ]
+        self._worker_cierre = WorkerCierre(self.cerebro, trabajadores)
+        self._worker_cierre.finished.connect(self._cierre_terminado)
+        self._worker_cierre.start()
+
+    def _cierre_terminado(self):
+        self._cierre_completado = True
+        self.close()
+
     def al_terminar_mensaje(self, respuesta_ia):
         self.pantalla_chat.append(f"<span style='color: #a6e3a1;'><b>IA:</b></span> {respuesta_ia.replace(chr(10), '<br>')}")
         self.pantalla_chat.verticalScrollBar().setValue(self.pantalla_chat.verticalScrollBar().maximum())
@@ -140,3 +184,4 @@ class InterfazBase(QWidget):
         self.label_estado.setText("✅ Sistema En Línea y Listo")
         self.label_estado.setStyleSheet("color: #a6e3a1; font-weight: bold; padding: 5px;")
         self.bloquear_ui(False)
+
