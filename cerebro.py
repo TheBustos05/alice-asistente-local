@@ -6,6 +6,7 @@ import base64
 import mimetypes
 import logging
 import re
+import atexit
 from openai import OpenAI
 
 import skills
@@ -31,6 +32,24 @@ class CerebroIA:
         self.HISTORIAL = []
         self.MAX_TURNOS = 8
         self.gestor_memoria = GestorMemoria()
+        atexit.register(self.apagar_motor)
+
+    def apagar_motor(self):
+        """Descarga los modelos de LM Studio durante un cierre normal de Alice."""
+        try:
+            resultado = subprocess.run(
+                ["lms", "unload", "--all"], capture_output=True, text=True,
+                timeout=30,
+            )
+            if resultado.returncode != 0:
+                detalle = resultado.stderr.strip() or resultado.stdout.strip() or "lms unload falló"
+                logger.error("No se pudieron descargar los modelos de LM Studio: %s", detalle)
+                return False
+            logger.info("Modelos de LM Studio descargados al cerrar Alice.")
+            return True
+        except (OSError, subprocess.SubprocessError) as e:
+            logger.error("No se pudieron descargar los modelos de LM Studio al cerrar Alice: %s", e)
+            return False
 
     def encender_motor(self, host="127.0.0.1", port=1234):
         def puerto_abierto():
@@ -235,3 +254,4 @@ class CerebroIA:
         except Exception as e:
             self.log(f"Error: {e}", "#f38ba8")
             return "Ocurrió un error al procesar la respuesta."
+
