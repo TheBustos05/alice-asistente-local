@@ -15,6 +15,10 @@ from memoria_core import GestorMemoria
 logger = logging.getLogger("Cerebro")
 
 class CerebroIA:
+    TIEMPO_ESPERA_CLI = 180
+    CONTEXTO_MAXIMO = 4096
+    TTL_MODELO = 900
+
     def __init__(self, callback_log, callback_refresh):
         self.log = callback_log
         self.refresh = callback_refresh
@@ -36,13 +40,25 @@ class CerebroIA:
 
         if not puerto_abierto():
             self.log("Iniciando servidor de LM Studio...")
-            subprocess.Popen("lms server start", shell=True)
-            for _ in range(15):
+            try:
+                subprocess.Popen(["lms", "server", "start"])
+            except OSError as e:
+                self.log(f"No se pudo iniciar el servidor LM Studio: {e}", "#f38ba8")
+                return False
+            for _ in range(60):
                 time.sleep(1)
                 self.refresh()
                 if puerto_abierto(): break
+            else:
+                self.log("LM Studio no abrió el puerto en 60 segundos.", "#f38ba8")
+                return False
 
-        self.client = OpenAI(base_url=f"http://{host}:{port}/v1", api_key="lm-studio")
+        self.client = OpenAI(
+            base_url=f"http://{host}:{port}/v1",
+            api_key="lm-studio",
+            timeout=300.0,
+            max_retries=0,
+        )
         self.log("Iniciando sistema de Enrutamiento Dinámico...", "#cba6f7")
 
         if self._asegurar_modelo(self.modelo_rapido):
@@ -54,31 +70,87 @@ class CerebroIA:
 
     def _asegurar_modelo(self, nombre_modelo):
         try:
-            self.client.chat.completions.create(model=nombre_modelo, messages=[{"role": "user", "content": "ping"}], max_tokens=1)
+            estado = subprocess.run(
+                ["lms", "ps", "--json"], capture_output=True, text=True,
+                timeout=30, check=True,
+            )
+            modelos_cargados = self._ids_modelos_cargados(estado.stdout)
+        except (OSError, subprocess.SubprocessError, ValueError) as e:
+            self.log(f"No se pudo consultar el estado de LM Studio: {e}", "#f38ba8")
+            return False
+
+        if nombre_modelo.casefold() in modelos_cargados:
             return True
-        except Exception:
-            self.log(f"Cargando '{nombre_modelo}' en VRAM...", "#fab387")
-            subprocess.run(f'lms load "{nombre_modelo}" -y', shell=True, capture_output=True)
-            for _ in range(15):
-                time.sleep(2)
-                self.refresh()
-                try:
-                    self.client.chat.completions.create(model=nombre_modelo, messages=[{"role": "user", "content": "ping"}], max_tokens=1)
-                    return True
-                except Exception: pass
-        return False
+
+        self.log("Liberando modelos anteriores para mantener un solo modelo en memoria...", "#fab387")
+        try:
+            descarga = subprocess.run(
+                ["lms", "unload", "--all"], capture_output=True, text=True,
+                timeout=60,
+            )
+            if descarga.returncode != 0:
+                raise RuntimeError(descarga.stderr.strip() or descarga.stdout.strip() or "lms unload falló")
+
+            self.log(f"Cargando '{nombre_modelo}' (contexto máximo: {self.CONTEXTO_MAXIMO})...", "#fab387")
+            carga = subprocess.run(
+                ["lms", "load", nombre_modelo, "--context-length", str(self.CONTEXTO_MAXIMO), "--ttl", str(self.TTL_MODELO), "-y"],
+                capture_output=True, text=True, timeout=self.TIEMPO_ESPERA_CLI,
+            )
+            if carga.returncode != 0:
+                raise RuntimeError(carga.stderr.strip() or carga.stdout.strip() or "lms load falló")
+        except (OSError, subprocess.SubprocessError, RuntimeError) as e:
+            self.log(f"No se pudo cargar '{nombre_modelo}': {e}", "#f38ba8")
+            return False
+
+        try:
+            estado = subprocess.run(
+                ["lms", "ps", "--json"], capture_output=True, text=True,
+                timeout=30, check=True,
+            )
+            modelos_cargados = self._ids_modelos_cargados(estado.stdout)
+            if nombre_modelo.casefold() not in modelos_cargados:
+                self.log(f"LM Studio terminó la carga pero '{nombre_modelo}' no aparece como cargado.", "#f38ba8")
+                return False
+            return True
+        except (OSError, subprocess.SubprocessError, ValueError) as e:
+            self.log(f"No se pudo verificar la carga de '{nombre_modelo}': {e}", "#f38ba8")
+            return False
+
+    @staticmethod
+    def _ids_modelos_cargados(salida_json):
+        datos = json.loads(salida_json or "[]")
+        ids = set()
+        campos_id = {"id", "identifier", "model", "model_key", "modelkey", "key"}
+
+        def recorrer(valor):
+            if isinstance(valor, dict):
+                for clave, contenido in valor.items():
+                    if clave.casefold() in campos_id and isinstance(contenido, str):
+                        ids.add(contenido.casefold())
+                    recorrer(contenido)
+            elif isinstance(valor, list):
+                for elemento in valor:
+                    recorrer(elemento)
+
+        recorrer(datos)
+        return ids
 
     def procesar_mensaje(self, texto, ruta_imagen=None):
         modelo_seleccionado = self.modelo_rapido
         texto_lower = (texto or "").lower()
         
-        habla_de_archivos = any(palabra in texto_lower for palabra in ["carpeta", "ruta", "directorio", "archivo", "espacio de trabajo", "readme"])
-        requiere_experto = re.search(r"\b(código|script|blender|python|render|analiza)\b", texto_lower)
+        requiere_experto = re.search(
+            r"\b(?:escribe|crea|genera|depura|corrige|revisa|analiza|optimiza|explica|implementa|programa|diseña)\b"
+            r".{0,60}\b(?:código|codigo|script|función|funcion|clase|programa|algoritmo|consulta sql|arquitectura|blender|render|python)\b"
+            r"|\b(?:código|codigo|script|función|funcion|clase|programa|algoritmo|consulta sql|arquitectura|blender|render|python)\b"
+            r".{0,60}\b(?:escribe|crea|genera|depura|corrige|revisa|analiza|optimiza|explica|implementa|programa|diseña)\b",
+            texto_lower,
+        )
 
         if ruta_imagen:
             self.log("👁️ Imagen detectada. Delegando al Especialista Visual (Qwen)...", "#cba6f7")
             modelo_seleccionado = self.modelo_pesado
-        elif requiere_experto and not habla_de_archivos:
+        elif requiere_experto:
             self.log("🧠 Tarea compleja detectada. Delegando al Especialista...", "#cba6f7")
             modelo_seleccionado = self.modelo_pesado
         else:
@@ -156,10 +228,6 @@ class CerebroIA:
 
             if self.gestor_memoria.evaluar_y_guardar(texto, respuesta_final, self.USER_ID):
                 self.log("💾 Guardando memoria...", "#89dceb")
-
-            if modelo == self.modelo_pesado:
-                self.log("Tarea pesada finalizada. Devolviendo control al Recepcionista...", "#a6e3a1")
-                self._asegurar_modelo(self.modelo_rapido)
 
             return respuesta_final
         except Exception as e:
