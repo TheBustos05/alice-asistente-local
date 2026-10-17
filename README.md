@@ -77,11 +77,12 @@ Durante el desarrollo de Alice se presentaron diversos retos técnicos y cuellos
 
 ### 3. Falsos Positivos en el Enrutador Dinámico
 * **El Fallo:** El enrutador anterior activaba el especialista por palabras aisladas como "Python", "Blender" o "analiza", incluso en consultas casuales.
-* **Solución:** Ahora requiere una petición de acción técnica vinculada explícitamente con código, scripts, funciones, clases, programas, algoritmos o SQL. Las imágenes siguen activando Qwen.
+* **Solución:** Ahora requiere una petición de acción vinculada a un concepto técnico (código, scripts, funciones, arquitectura, Blender, entre otros). Las imágenes siguen activando Qwen.
 
 ### 4. ⚠️ Uso de memoria en equipos con 16 GB de RAM
 * **El Problema:** El uso real depende de la cuantización, del tamaño de contexto y de la memoria disponible en GPU; dos modelos de 8B pueden provocar paginación en un equipo modesto. Los valores concretos varían por modelo y hardware.
-* **Medidas aplicadas al módulo de modelos:** Alice mantiene como máximo un modelo cargado cuando cambia entre Stheno y Qwen, limita el contexto solicitado a 4096 tokens y configura una descarga tras 15 minutos de inactividad. Una solicitud puede tardar hasta 300 segundos; las peticiones no se reintentan automáticamente. La aplicación no puede impedir que otros procesos carguen modelos ni garantizar que 16 GB sean suficientes para cualquier cuantización.
+* **Medidas aplicadas al módulo de modelos:** Al cambiar entre Stheno y Qwen, el enrutador descarga los modelos y carga solo el seleccionado, limita el contexto solicitado a 4096 tokens y configura una descarga tras 15 minutos de inactividad. Una solicitud puede tardar hasta 300 segundos; las peticiones no se reintentan automáticamente.
+* **Limitación conocida:** `memoria_core.py` configura Mem0 para usar Stheno y puede solicitarlo durante el guardado de recuerdos mientras Qwen está activo. Ese módulo queda fuera de este cambio; por ello, durante ese tramo la aplicación podría volver a cargar Stheno y superar el límite de un único modelo. El siguiente cambio de modelo vuelve a reconciliar los modelos de Alice. Tampoco se puede garantizar que 16 GB sean suficientes para cualquier cuantización o configuración de GPU.
 * **Otras ideas en evaluación:**
   1. **Migración del Cerebro a API Externa (OpenRouter):** Mantener la interfaz, las herramientas CRUD y ChromaDB en local (consumo < 150 MB de RAM), delegando la inferencia de Stheno/Qwen a la nube por fracciones de centavo o mediante capas `:free`.
   2. **Optimización del Embedder:** Cambiar `all-MiniLM-L6-v2` por un modelo multilingüe (`paraphrase-multilingual-MiniLM-L12-v2`) para mejorar la precisión semántica en español.

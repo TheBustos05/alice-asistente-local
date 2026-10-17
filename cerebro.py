@@ -79,7 +79,9 @@ class CerebroIA:
             self.log(f"No se pudo consultar el estado de LM Studio: {e}", "#f38ba8")
             return False
 
-        if nombre_modelo.casefold() in modelos_cargados:
+        modelos_alice = {self.modelo_rapido.casefold(), self.modelo_pesado.casefold()}
+        otros_modelos_alice = modelos_alice - {nombre_modelo.casefold()}
+        if nombre_modelo.casefold() in modelos_cargados and not (modelos_cargados & otros_modelos_alice):
             return True
 
         self.log("Liberando modelos anteriores para mantener un solo modelo en memoria...", "#fab387")
