@@ -14,6 +14,7 @@ A diferencia de los chatbots tradicionales, Alice cuenta con una arquitectura de
   * **Recepcionista (`l3-8b-stheno-v3.2-iq-imatrix`):** Especializado en conversación rápida, interpretación de rol (Roleplay) y ejecución de herramientas ligeras.
   * **Especialista (`qwen/qwen3-vl-8b`):** Se selecciona para imágenes adjuntas y solicitudes explícitas de creación, revisión o depuración de código; mencionar de pasada términos como “Python” no basta.
   * El estado se consulta con `lms ps --json`, sin generar una petición artificial de prueba en cada turno. Al cambiar de modelo, Alice descarga los modelos cargados y carga solo el seleccionado con contexto de 4096 tokens y descarga automática tras 15 minutos de inactividad.
+  * Al cerrar la ventana, Alice descarga los modelos, espera a que terminen las operaciones activas y repite la descarga para cubrir cargas que ocurrieron durante el cierre.
 * **💾 Memoria Semántica a Largo Plazo:** Implementación de **Mem0** junto con **ChromaDB** y modelos *Embedders* de HuggingFace (`all-MiniLM-L6-v2`). Alice convierte hechos relevantes del usuario en vectores matemáticos, recordando preferencias y proyectos entre sesiones sin saturar la ventana de contexto.
 * **🛠️ Sistema Dinámico de Plugins (`skills/`):** Cargador automático de herramientas (*Tool Calling*). Incluye un módulo CRUD (`skill_crud.py`) con *Sandboxing* estricto dentro de `./workspace_ia` para crear, leer, listar, mover y eliminar archivos reales sin riesgo para el sistema operativo.
 * **⚡ Interfaz Asíncrona (PyQt6):** Diseño oscuro inspirado en *Catppuccin Mocha*. Utiliza subprocesos (`QThread`) y señales (`pyqtSignal`) para evitar el congelamiento de la ventana durante la carga de modelos en VRAM o la generación de respuestas, incorporando un cronómetro de estado en tiempo real (`QTimer`).
@@ -83,6 +84,7 @@ Durante el desarrollo de Alice se presentaron diversos retos técnicos y cuellos
 * **El Problema:** El uso real depende de la cuantización, del tamaño de contexto y de la memoria disponible en GPU; dos modelos de 8B pueden provocar paginación en un equipo modesto. Los valores concretos varían por modelo y hardware.
 * **Medidas aplicadas al módulo de modelos:** Al cambiar entre Stheno y Qwen, el enrutador descarga los modelos y carga solo el seleccionado, limita el contexto solicitado a 4096 tokens y configura una descarga tras 15 minutos de inactividad. Una solicitud puede tardar hasta 300 segundos; las peticiones no se reintentan automáticamente.
 * **Limitación conocida:** `memoria_core.py` configura Mem0 para usar Stheno y puede solicitarlo durante el guardado de recuerdos mientras Qwen está activo. Ese módulo queda fuera de este cambio; por ello, durante ese tramo la aplicación podría volver a cargar Stheno y superar el límite de un único modelo. El siguiente cambio de modelo vuelve a reconciliar los modelos de Alice. Tampoco se puede garantizar que 16 GB sean suficientes para cualquier cuantización o configuración de GPU.
+* El cierre limpio de la ventana y la salida normal de Python ejecutan la descarga. Ninguna aplicación puede ejecutar limpieza si Windows termina el proceso a la fuerza (por ejemplo, finalizar tarea); en ese caso, LM Studio puede conservar los modelos hasta que se descarguen manualmente o se cierre su servidor.
 * **Otras ideas en evaluación:**
   1. **Migración del Cerebro a API Externa (OpenRouter):** Mantener la interfaz, las herramientas CRUD y ChromaDB en local (consumo < 150 MB de RAM), delegando la inferencia de Stheno/Qwen a la nube por fracciones de centavo o mediante capas `:free`.
   2. **Optimización del Embedder:** Cambiar `all-MiniLM-L6-v2` por un modelo multilingüe (`paraphrase-multilingual-MiniLM-L12-v2`) para mejorar la precisión semántica en español.
@@ -93,3 +95,4 @@ Durante el desarrollo de Alice se presentaron diversos retos técnicos y cuellos
 
 ## 👤 Autor
 Desarrollado y diseñado por **A.C.B.** (`TheBustos05`).
+
